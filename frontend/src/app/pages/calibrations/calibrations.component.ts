@@ -9,6 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule } from '@angular/material/paginator';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatExpansionModule } from '@angular/material/expansion';
+import { MatSelectModule } from '@angular/material/select';
 import { PageHeaderComponent } from '../../components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../components/status-badge/status-badge.component';
 import { EmptyStateComponent } from '../../components/empty-state/empty-state.component';
@@ -27,11 +28,18 @@ import { Subject, takeUntil } from 'rxjs';
   imports: [
     MatCardModule,
     CommonModule, MatTableModule, MatButtonModule, MatIconModule, MatDialogModule, MatProgressSpinnerModule,
-    MatPaginatorModule, MatSnackBarModule, MatExpansionModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
+    MatPaginatorModule, MatSnackBarModule, MatExpansionModule, MatSelectModule, PageHeaderComponent, StatusBadgeComponent, EmptyStateComponent,
   ],
   template: `
     <app-page-header title="计量与质控" subtitle="计量台账、到期自动提醒、计量结果登记（不合格自动禁用设备）"></app-page-header>
     <div class="filter-bar">
+      <mat-form-field appearance="outline" class="filter-field">
+        <mat-label>计量状态</mat-label>
+        <mat-select [value]="statusFilter" (selectionChange)="onStatusFilter($event.value)">
+          <mat-option value="">全部</mat-option>
+          <mat-option *ngFor="let o of statusOptions" [value]="o.value">{{ o.label }}</mat-option>
+        </mat-select>
+      </mat-form-field>
       <div class="spacer"></div>
       <button mat-flat-button color="primary" (click)="openCreate()"><mat-icon>add</mat-icon> 建立计量台账</button>
     </div>
@@ -45,7 +53,10 @@ import { Subject, takeUntil } from 'rxjs';
         </mat-expansion-panel-header>
         <div class="due-row" *ngFor="let d of dueList">
           <span>{{ d.device_name }}（{{ d.instrument_no }}）</span>
-          <span class="due-date">下次计量：{{ formatDate(d.next_calibration_date) }}</span>
+          <span class="due-meta">
+            <app-status-badge [status]="d.status" [labelMap]="statusText"></app-status-badge>
+            <span class="due-date">下次计量：{{ formatDate(d.next_calibration_date) }}</span>
+          </span>
         </div>
       </mat-expansion-panel>
     </mat-accordion>
@@ -97,7 +108,9 @@ import { Subject, takeUntil } from 'rxjs';
     .loading { display: flex; justify-content: center; padding: 24px; }
     .due-panel { margin-bottom: 16px; }
     .due-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+    .due-meta { display: flex; align-items: center; gap: 12px; }
     .due-date { color: #ef6c00; }
+    .filter-field { width: 180px; }
   `],
 })
 export class CalibrationsComponent implements OnInit, OnDestroy {
@@ -108,6 +121,8 @@ export class CalibrationsComponent implements OnInit, OnDestroy {
   store = inject(CalibrationStore);
 
   statusText = CALIBRATION_STATUS_TEXT;
+  statusOptions = Object.entries(CALIBRATION_STATUS_TEXT).map(([value, label]) => ({ value, label }));
+  statusFilter = '';
   columns = ['instrument_no', 'device_name', 'calibration_cycle_months', 'last_calibration_date', 'next_calibration_date', 'status', 'actions'];
   page = 1;
   pageSize = 10;
@@ -115,23 +130,29 @@ export class CalibrationsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.load();
+    this.loadDue();
+  }
+
+  ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }
+
+  load(): void { this.store.load(this.page, this.pageSize, undefined, this.statusFilter || undefined); }
+  onPage(e: { pageIndex: number; pageSize: number }): void { this.page = e.pageIndex + 1; this.pageSize = e.pageSize; this.load(); }
+  onStatusFilter(status: string): void { this.statusFilter = status; this.page = 1; this.load(); }
+
+  // 预警清单与列表/总览按同一时点刷新，登记或建账后需同步回读。
+  loadDue(): void {
     calibrationDueApi(this.http).pipe(takeUntil(this.destroy$)).subscribe({
       next: (d) => (this.dueList = d),
       error: () => (this.dueList = []),
     });
   }
 
-  ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }
-
-  load(): void { this.store.load(this.page, this.pageSize); }
-  onPage(e: { pageIndex: number; pageSize: number }): void { this.page = e.pageIndex + 1; this.pageSize = e.pageSize; this.load(); }
-
   openCreate(): void {
     const ref = this.dialog.open(CalibrationFormDialogComponent, { data: { mode: 'create' } as CalibrationFormData, width: '620px' });
     ref.afterClosed().subscribe((payload) => {
       if (!payload) return;
       calibrationCreateApi(this.http, payload).subscribe({
-        next: () => { this.snackBar.open('计量台账已建立', '关闭', { duration: 2000 }); this.load(); },
+        next: () => { this.snackBar.open('计量台账已建立', '关闭', { duration: 2000 }); this.load(); this.loadDue(); },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),
       });
     });
@@ -145,6 +166,7 @@ export class CalibrationsComponent implements OnInit, OnDestroy {
         next: () => {
           this.snackBar.open(payload.result === 'unqualified' ? '已登记为不合格，设备自动禁用' : '计量结果已登记', '关闭', { duration: 2500 });
           this.load();
+          this.loadDue();
         },
         error: (err) => this.snackBar.open(parseHttpError(err), '关闭', { duration: 3000 }),
       });

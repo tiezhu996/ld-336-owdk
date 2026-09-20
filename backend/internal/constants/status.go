@@ -44,6 +44,10 @@ const (
 	CalibrationStatusExpired    = "expired"     // 已过期
 )
 
+// CalibrationDueWindowDays 计量到期预警窗口（天）：下次计量日前 N 天内标记"即将到期"。
+// 列表筛选、到期预警与统计总览必须使用同一窗口与同一时点计算。
+const CalibrationDueWindowDays = 30
+
 // 调拨状态枚举。
 const (
 	TransferStatusPending  = "pending"

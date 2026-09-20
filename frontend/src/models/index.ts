@@ -113,6 +113,7 @@ export interface CalibrationRecord {
   next_calibration_date: string;
   status: string;
   result: string;
+  result_registered_at?: string;
   certificate_no: string;
   calibration_org: string;
   remark: string;

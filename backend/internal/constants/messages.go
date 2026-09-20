@@ -15,6 +15,7 @@ const (
 	MsgDuplicateAssetCode   = "资产编号已存在"
 	MsgDuplicateRequestNo   = "申请单号已存在"
 	MsgDuplicateInstrumentNo = "计量器具编号已存在"
+	MsgDuplicateCalibrationResult = "该计量记录当日已登记计量结果，请勿重复提交"
 	MsgDeviceNotAllowed     = "该设备状态不允许执行此操作"
 	MsgDeviceInScrapped     = "已报废设备不可操作"
 	MsgRateLimited          = "请求过于频繁，请稍后再试"

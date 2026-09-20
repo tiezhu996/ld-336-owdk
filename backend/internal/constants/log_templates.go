@@ -26,6 +26,8 @@ const (
 	LogMaintenanceCancelled = "保养/维修取消: record_no=%s reason=%s status=%s"
 	LogCalibrationCreated  = "计量台账建立: instrument_no=%s device_id=%d cycle_months=%d status=%s"
 	LogCalibrationResult   = "计量结果登记: instrument_no=%s result=%s status=%s device_id=%d"
+	LogCalibrationStatusRefreshed = "计量状态刷新: as_of=%s changed=%d"
+	LogCalibrationDeviceSkip = "计量不合格联动禁用跳过: device_id=%d status=%s"
 	LogTransferCreated     = "调拨申请提交: transfer_no=%s device_id=%d from=%s to=%s status=%s"
 	LogTransferApproved    = "调拨审批通过并更新科室: transfer_no=%s device_id=%d to_department=%s"
 	LogTransferRejected    = "调拨驳回: transfer_no=%s approver=%s comment=%s"

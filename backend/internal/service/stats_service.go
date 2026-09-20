@@ -3,6 +3,7 @@ package service
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/dto"
@@ -63,6 +64,10 @@ func (s *StatsService) Overview() (*dto.OverviewResp, error) {
 	}
 	categoryDist, err := s.device.GroupCount("category")
 	if err != nil {
+		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
+	}
+	// 计量到期统计与列表筛选/到期预警按同一时点刷新后再计数，保证口径一致、刷新后可回读。
+	if _, err := s.calibration.RefreshStatuses(calibrationDueBounds(time.Now())); err != nil {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
 	calibDue, err := s.calibration.CountByStatus(constants.CalibrationStatusDue)

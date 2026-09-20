@@ -145,7 +145,10 @@ export class CalibrationFormDialogComponent implements OnInit {
       const raw = this.resultForm.getRawValue();
       const payload: ResultPayload = {
         result: raw.result,
-        next_calibration_date: raw.next_calibration_date || undefined,
+        // 日期控件值为 yyyy-MM-dd，后端按 RFC3339 解析，统一转为本地零点 ISO 串。
+        next_calibration_date: raw.next_calibration_date
+          ? new Date(raw.next_calibration_date + 'T00:00:00').toISOString()
+          : undefined,
         certificate_no: raw.certificate_no,
         calibration_org: raw.calibration_org,
         remark: raw.remark,

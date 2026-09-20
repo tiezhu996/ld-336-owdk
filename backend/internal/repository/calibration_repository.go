@@ -3,9 +3,12 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CalibrationRepository 计量台账仓储。
@@ -29,6 +32,17 @@ func (r *CalibrationRepository) Create(c *model.CalibrationRecord) error {
 func (r *CalibrationRepository) FindByID(id uint) (*model.CalibrationRecord, error) {
 	var c model.CalibrationRecord
 	err := r.db.First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// FindByIDForUpdate 在事务中按 ID 加锁查询（SELECT ... FOR UPDATE），
+// 用于登记计量结果时串行化并发写入，保证同一记录只落一个终态。
+func (r *CalibrationRepository) FindByIDForUpdate(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&c, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}
@@ -63,12 +77,31 @@ func (r *CalibrationRepository) UpdateTx(tx *gorm.DB, c *model.CalibrationRecord
 	return tx.Save(c).Error
 }
 
-// ListDue 查询到期/即将到期/过期计量记录（计量到期预警）。
+// ListDue 查询已刷新为"即将到期/已过期"的计量记录（计量到期预警）。
+// 与列表筛选、统计总览读取同一份持久化状态，保证同一时点口径一致。
 func (r *CalibrationRepository) ListDue() ([]model.CalibrationRecord, error) {
 	var list []model.CalibrationRecord
-	err := r.db.Where("next_calibration_date IS NOT NULL AND next_calibration_date <= DATE_ADD(NOW(), INTERVAL 30 DAY)").
+	err := r.db.Where("status IN ?", []string{constants.CalibrationStatusDue, constants.CalibrationStatusExpired}).
 		Order("next_calibration_date ASC").Find(&list).Error
 	return list, err
+}
+
+// RefreshStatuses 以统一边界重算并持久化全部计量状态（单条原子 UPDATE，要么全量生效要么不生效）。
+// 规则：结果不合格始终 unqualified；下次计量日期早于 expiredBefore 为 expired；
+// 早于 dueBefore 为 due；其余为 normal。返回状态发生变化的行数。
+func (r *CalibrationRepository) RefreshStatuses(expiredBefore, dueBefore time.Time) (int64, error) {
+	res := r.db.Session(&gorm.Session{AllowGlobalUpdate: true}).
+		Model(&model.CalibrationRecord{}).
+		Update("status", gorm.Expr(`CASE
+			WHEN result = ? THEN ?
+			WHEN next_calibration_date IS NOT NULL AND next_calibration_date < ? THEN ?
+			WHEN next_calibration_date IS NOT NULL AND next_calibration_date < ? THEN ?
+			ELSE ? END`,
+			constants.CalibrationResultUnqualified, constants.CalibrationStatusUnqualified,
+			expiredBefore, constants.CalibrationStatusExpired,
+			dueBefore, constants.CalibrationStatusDue,
+			constants.CalibrationStatusNormal))
+	return res.RowsAffected, res.Error
 }
 
 // CountByStatus 按状态统计。
