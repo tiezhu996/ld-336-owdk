@@ -43,8 +43,16 @@ import { Subject, takeUntil } from 'rxjs';
         <div class="stat-value">{{ moneyLabel(data.maintenance_cost) }}</div>
       </mat-card>
       <mat-card class="stat-card">
-        <div class="stat-label">计量到期预警</div>
-        <div class="stat-value">{{ data.calibration_due }}</div>
+        <div class="stat-label">计量即将到期（30天内）</div>
+        <div class="stat-value warn">{{ data.calibration_due }}</div>
+      </mat-card>
+      <mat-card class="stat-card">
+        <div class="stat-label">计量已过期</div>
+        <div class="stat-value danger">{{ data.calibration_expired }}</div>
+      </mat-card>
+      <mat-card class="stat-card">
+        <div class="stat-label">计量不合格（已禁用）</div>
+        <div class="stat-value danger">{{ data.calibration_unqualified }}</div>
       </mat-card>
       <mat-card class="stat-card">
         <div class="stat-label">待处理采购</div>
@@ -88,6 +96,8 @@ import { Subject, takeUntil } from 'rxjs';
     .dist-grid mat-card { padding: 20px; }
     .dist-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee; font-size: 13px; }
     .dist-value { font-weight: 500; }
+    .stat-value.warn { color: #ef6c00; }
+    .stat-value.danger { color: #c62828; }
   `],
 })
 export class DashboardComponent implements OnInit, OnDestroy {

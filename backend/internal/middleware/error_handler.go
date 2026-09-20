@@ -42,6 +42,11 @@ func ErrorHandler(log *slog.Logger) gin.HandlerFunc {
 }
 
 func httpStatusOf(code int) int {
+	// service/handler 直接使用 net/http 标准状态码（400–599）构造 AppError 时原样透传；
+	// 业务错误码集中定义在 constants/error_codes.go（均 >= 40000），二者区间不重叠。
+	if code >= 400 && code < 600 {
+		return code
+	}
 	switch code {
 	case constants.CodeUnauthorized, constants.CodeInvalidToken, constants.CodeTokenExpired, constants.CodeWrongPassword:
 		return http.StatusUnauthorized

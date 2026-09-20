@@ -94,6 +94,16 @@ export const CALIBRATION_STATUS_TEXT: Record<string, string> = {
   expired: '已过期',
 };
 
+export const CALIBRATION_RESULT = {
+  QUALIFIED: 'qualified',
+  UNQUALIFIED: 'unqualified',
+} as const;
+
+export const CALIBRATION_RESULT_TEXT: Record<string, string> = {
+  qualified: '合格',
+  unqualified: '不合格',
+};
+
 export const TRANSFER_STATUS = {
   PENDING: 'pending',
   APPROVED: 'approved',

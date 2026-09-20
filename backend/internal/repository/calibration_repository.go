@@ -3,8 +3,11 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
+	"github.com/medasset/medasset/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -35,6 +38,64 @@ func (r *CalibrationRepository) FindByID(id uint) (*model.CalibrationRecord, err
 	return &c, err
 }
 
+// FindByIDTx 在事务中按 ID 查询（调用方须先开启事务，跨 MySQL/SQLite 兼容）。
+func (r *CalibrationRepository) FindByIDTx(tx *gorm.DB, id uint) (*model.CalibrationRecord, error) {
+	var c model.CalibrationRecord
+	err := tx.First(&c, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &c, err
+}
+
+// SyncDerivedStatuses 按统一时点把“逾期/即将到期/合格”落库（幂等）。
+// 结果为不合格（unqualified）的终态记录永不被覆盖；返回本次各状态刷新行数。
+// 列表筛选、到期预警、总览统计在读取前必须先调用本方法，保证同一 now 下口径一致且刷新后可回读。
+func (r *CalibrationRepository) SyncDerivedStatuses(now time.Time) (expiredN, dueN, normalN int64, err error) {
+	expiredBefore, dueBefore := util.CalibrationDeadlineBounds(now)
+	// 三组条件互斥：unqualified 始终排除，按过期 → 即将到期 → 合格依次落库。
+	res := r.db.Model(&model.CalibrationRecord{}).
+		Where("result <> ? AND next_calibration_date IS NOT NULL AND next_calibration_date < ?",
+			constants.CalibrationResultUnqualified, expiredBefore).
+		Update("status", constants.CalibrationStatusExpired)
+	if res.Error != nil {
+		return 0, 0, 0, fmt.Errorf("sync expired calibration status: %w", res.Error)
+	}
+	expiredN = res.RowsAffected
+
+	res = r.db.Model(&model.CalibrationRecord{}).
+		Where("result <> ? AND next_calibration_date IS NOT NULL AND next_calibration_date >= ? AND next_calibration_date < ?",
+			constants.CalibrationResultUnqualified, expiredBefore, dueBefore).
+		Update("status", constants.CalibrationStatusDue)
+	if res.Error != nil {
+		return 0, 0, 0, fmt.Errorf("sync due calibration status: %w", res.Error)
+	}
+	dueN = res.RowsAffected
+
+	res = r.db.Model(&model.CalibrationRecord{}).
+		Where("result <> ? AND (next_calibration_date IS NULL OR next_calibration_date >= ?)",
+			constants.CalibrationResultUnqualified, dueBefore).
+		Update("status", constants.CalibrationStatusNormal)
+	if res.Error != nil {
+		return 0, 0, 0, fmt.Errorf("sync normal calibration status: %w", res.Error)
+	}
+	normalN = res.RowsAffected
+	return expiredN, dueN, normalN, nil
+}
+
+// RegisterResultTx 在事务内原子登记计量结果。
+// 仅当当日尚未登记结果（result_registered_at 为空或不在今日）时更新成功；
+// 并发或重复登记时 RowsAffected=0，由调用方转 409，保证只能落一个终态。
+func (r *CalibrationRepository) RegisterResultTx(tx *gorm.DB, id uint, fields map[string]interface{}) (int64, error) {
+	q := tx.Model(&model.CalibrationRecord{}).Where("id = ?", id).
+		Where("result_registered_at IS NULL OR DATE(result_registered_at) <> DATE(?)", fields["result_registered_at"])
+	res := q.Updates(fields)
+	if res.Error != nil {
+		return 0, fmt.Errorf("register calibration result: %w", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
 // List 分页查询计量记录。
 func (r *CalibrationRepository) List(page, pageSize int, deviceID uint, status string) ([]model.CalibrationRecord, int64, error) {
 	var list []model.CalibrationRecord
@@ -58,15 +119,14 @@ func (r *CalibrationRepository) Update(c *model.CalibrationRecord) error {
 	return r.db.Save(c).Error
 }
 
-// UpdateTx 在指定事务中更新更新计量记录。
-func (r *CalibrationRepository) UpdateTx(tx *gorm.DB, c *model.CalibrationRecord) error {
-	return tx.Save(c).Error
-}
-
-// ListDue 查询到期/即将到期/过期计量记录（计量到期预警）。
-func (r *CalibrationRepository) ListDue() ([]model.CalibrationRecord, error) {
+// ListDue 查询计量到期预警清单（即将到期 + 已过期）。
+// 调用方须先执行 SyncDerivedStatuses，按同一时点刷新状态；不合格记录为终态，不进入预警。
+func (r *CalibrationRepository) ListDue(now time.Time) ([]model.CalibrationRecord, error) {
 	var list []model.CalibrationRecord
-	err := r.db.Where("next_calibration_date IS NOT NULL AND next_calibration_date <= DATE_ADD(NOW(), INTERVAL 30 DAY)").
+	_, dueBefore := util.CalibrationDeadlineBounds(now)
+	err := r.db.
+		Where("status IN ? AND next_calibration_date IS NOT NULL AND next_calibration_date < ?",
+			[]string{constants.CalibrationStatusDue, constants.CalibrationStatusExpired}, dueBefore).
 		Order("next_calibration_date ASC").Find(&list).Error
 	return list, err
 }

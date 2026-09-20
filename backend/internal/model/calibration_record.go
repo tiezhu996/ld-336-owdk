@@ -13,6 +13,7 @@ type CalibrationRecord struct {
 	NextCalibrationDate   *time.Time `gorm:"index" json:"next_calibration_date"`
 	Status                string     `gorm:"size:32;not null;default:normal;index" json:"status"`
 	Result                string     `gorm:"size:16" json:"result"`
+	ResultRegisteredAt    *time.Time `gorm:"index" json:"result_registered_at"`
 	CertificateNo         string     `gorm:"size:128" json:"certificate_no"`
 	CalibrationOrg        string     `gorm:"size:128" json:"calibration_org"`
 	Remark                string     `gorm:"size:512" json:"remark"`

@@ -3,6 +3,7 @@ package service
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/dto"
@@ -65,11 +66,25 @@ func (s *StatsService) Overview() (*dto.OverviewResp, error) {
 	if err != nil {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
-	calibDue, err := s.calibration.CountByStatus(constants.CalibrationStatusDue)
+	// 与列表筛选、到期预警按同一时点刷新计量状态，落库后统计，刷新后可回读。
+	now := time.Now()
+	if _, _, _, err := s.calibration.SyncDerivedStatuses(now); err != nil {
+		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
+	}
+	dueList, err := s.calibration.ListDue(now)
 	if err != nil {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
-	calibExpired, err := s.calibration.CountByStatus(constants.CalibrationStatusExpired)
+	var calibDue, calibExpired int64
+	for _, c := range dueList {
+		switch c.Status {
+		case constants.CalibrationStatusDue:
+			calibDue++
+		case constants.CalibrationStatusExpired:
+			calibExpired++
+		}
+	}
+	unqualified, err := s.calibration.CountByStatus(constants.CalibrationStatusUnqualified)
 	if err != nil {
 		return nil, util.NewAppError(http.StatusInternalServerError, constants.MsgInternalError, err)
 	}
@@ -79,17 +94,20 @@ func (s *StatsService) Overview() (*dto.OverviewResp, error) {
 	}
 	s.audit.Record(0, "system", "VIEW", "stats", "overview", "查看资产统计总览", "system", "")
 	return &dto.OverviewResp{
-		TotalDevices:     total,
-		TotalAmount:      totalAmount,
-		InUseDevices:     inUse,
-		UnderMaintenance: underMaint,
-		ScrappedDevices:  scrapped,
-		MaintenanceCost:  maintCost,
-		DepartmentDist:   departmentDist,
-		ManufacturerDist: manufacturerDist,
-		CategoryDist:     categoryDist,
-		CalibrationDue:   calibDue + calibExpired,
-		PendingPurchases: pendingPurchases,
+		TotalDevices:          total,
+		TotalAmount:           totalAmount,
+		InUseDevices:          inUse,
+		UnderMaintenance:      underMaint,
+		ScrappedDevices:       scrapped,
+		MaintenanceCost:       maintCost,
+		DepartmentDist:        departmentDist,
+		ManufacturerDist:      manufacturerDist,
+		CategoryDist:          categoryDist,
+		CalibrationDue:        calibDue,
+		CalibrationExpired:    calibExpired,
+		CalibrationUnqualified: unqualified,
+		CalibrationDueTotal:   calibDue + calibExpired,
+		PendingPurchases:      pendingPurchases,
 	}, nil
 }
 

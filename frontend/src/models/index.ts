@@ -113,6 +113,7 @@ export interface CalibrationRecord {
   next_calibration_date: string;
   status: string;
   result: string;
+  result_registered_at: string;
   certificate_no: string;
   calibration_org: string;
   remark: string;
@@ -173,5 +174,8 @@ export interface StatsOverview {
   manufacturer_dist: Record<string, number>;
   category_dist: Record<string, number>;
   calibration_due: number;
+  calibration_expired: number;
+  calibration_unqualified: number;
+  calibration_due_total: number;
   pending_purchases: number;
 }

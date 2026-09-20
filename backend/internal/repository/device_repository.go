@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/medasset/medasset/internal/constants"
 	"github.com/medasset/medasset/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -149,4 +150,30 @@ func (r *DeviceRepository) UpdateStatusTx(tx *gorm.DB, id uint, status string) e
 		return ErrNotFound
 	}
 	return nil
+}
+
+// DisableForCalibrationTx 在事务中因计量不合格禁用设备（幂等）。
+// 已报废为终态，不允许被计量流程回退为禁用；重复登记命中同一禁用状态时 RowsAffected=0 不视为失败。
+// 返回是否实际发生状态变更，调用方据此写状态变更日志。
+func (r *DeviceRepository) DisableForCalibrationTx(tx *gorm.DB, id uint) (bool, error) {
+	res := tx.Model(&model.Device{}).
+		Where("id = ? AND status <> ? AND status <> ?", id, constants.DeviceStatusDisabled, constants.DeviceStatusScrapped).
+		Update("status", constants.DeviceStatusDisabled)
+	if res.Error != nil {
+		return false, fmt.Errorf("disable device for calibration: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		return true, nil
+	}
+	var d model.Device
+	if err := tx.Select("id", "status").First(&d, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, ErrNotFound
+		}
+		return false, fmt.Errorf("load device for calibration disable: %w", err)
+	}
+	if d.Status == constants.DeviceStatusScrapped {
+		return false, ErrDeviceScrapped
+	}
+	return false, nil
 }
